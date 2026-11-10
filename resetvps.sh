@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-VERSION="1.0.0"
+SCRIPT_VERSION="1.0.1"
 LOG_FILE="/var/log/resetvps-$(date +%Y%m%d-%H%M%S).log"
 CONFIRM_PHRASE="RESET"
 
@@ -43,9 +43,15 @@ if [[ "${ID:-}" != "ubuntu" && "${ID:-}" != "debian" ]]; then
   exit 1
 fi
 
+# Optional dry-run (must be before interactive confirm so flags work)
+DRY_RUN=0
+if [[ "${1:-}" == "--dry-run" ]]; then
+  DRY_RUN=1
+fi
+
 echo
 echo -e "${RED}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${RED}║  resetvps v${VERSION} — FULL SYSTEM STRIP TO NEAR-FACTORY STATE  ║${NC}"
+echo -e "${RED}║  resetvps v${SCRIPT_VERSION} — FULL SYSTEM STRIP TO NEAR-FACTORY STATE ║${NC}"
 echo -e "${RED}║  This WILL destroy data, users, packages, docker, sites...   ║${NC}"
 echo -e "${RED}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo
@@ -55,18 +61,14 @@ echo "Kernel    : $(uname -r)"
 echo "Uptime    : $(uptime -p 2>/dev/null || true)"
 echo "Disk      : $(df -h / | awk 'NR==2{print $3" used / "$2" total ("$5")"}')"
 echo "Log       : $LOG_FILE"
+if [[ $DRY_RUN -eq 1 ]]; then
+  warn "DRY-RUN mode — no changes will be made"
+fi
 echo
 read -r -p "Type exactly '${CONFIRM_PHRASE}' to continue (anything else aborts): " confirm
 if [[ "$confirm" != "$CONFIRM_PHRASE" ]]; then
   warn "Aborted by operator."
   exit 0
-fi
-
-# Optional dry-run
-DRY_RUN=0
-if [[ "${1:-}" == "--dry-run" ]]; then
-  DRY_RUN=1
-  warn "DRY-RUN mode — no changes will be made"
 fi
 
 run() {
@@ -124,7 +126,6 @@ if command -v docker >/dev/null 2>&1; then
   run "docker network prune -f 2>/dev/null || true"
 fi
 
-# Stop common web / panel / db services so files can be removed
 for svc in nginx apache2 httpd mysql mariadb postgresql redis-server mongod docker containerd snapd; do
   if systemctl is-active --quiet "$svc" 2>/dev/null; then
     log "Stopping $svc"
@@ -138,7 +139,6 @@ done
 # -----------------------------------------------------------------------------
 log "=== PHASE 3: WIPE USER DATA & CUSTOM FOLDERS ==="
 
-# Remove all non-system users (uid >= 1000) and their homes
 while IFS=: read -r user _ uid _ _ home _; do
   if [[ "$uid" -ge 1000 && "$user" != "nobody" ]]; then
     log "Removing user $user (uid $uid) and home $home"
@@ -147,7 +147,6 @@ while IFS=: read -r user _ uid _ _ home _; do
   fi
 done < /etc/passwd
 
-# Common application / site locations
 for path in \
   /var/www \
   /var/lib/mysql \
@@ -177,12 +176,11 @@ do
   fi
 done
 
-# Recreate minimal empty dirs that packages expect
 run "mkdir -p /var/www /home /opt /tmp /var/tmp"
 run "chmod 1777 /tmp /var/tmp"
 
 # -----------------------------------------------------------------------------
-# 4. PURGE PACKAGES — desktop, panels, databases, extra tools
+# 4. PURGE PACKAGES
 # -----------------------------------------------------------------------------
 log "=== PHASE 4: PACKAGE PURGE ==="
 
@@ -230,7 +228,7 @@ run "history -c 2>/dev/null || true"
 run "sync; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true"
 
 # -----------------------------------------------------------------------------
-# 6. CRON / SYSTEMD USER UNITS / CUSTOM SERVICES
+# 6. CRON / SYSTEMD
 # -----------------------------------------------------------------------------
 log "=== PHASE 6: CRON & CUSTOM UNITS ==="
 
@@ -242,13 +240,12 @@ run "find /etc/systemd/system -type f -name '*.service' ! -path '*/sysinit.targe
 run "systemctl daemon-reload 2>/dev/null || true"
 
 # -----------------------------------------------------------------------------
-# 7. NETWORK / SSH KEEP MINIMAL (do not lock yourself out)
+# 7. KEEP SSH
 # -----------------------------------------------------------------------------
-log "=== PHASE 7: KEEP SSH ALIVE — minimal network hygiene ==="
+log "=== PHASE 7: KEEP SSH ALIVE ==="
 
 run "systemctl enable ssh 2>/dev/null || systemctl enable sshd 2>/dev/null || true"
 run "systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true"
-
 run "rm -f /root/.ssh/known_hosts 2>/dev/null || true"
 
 # -----------------------------------------------------------------------------

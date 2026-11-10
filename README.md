@@ -20,10 +20,22 @@ Result: base OS packages only, no extra users, no sites, no containers. Closest 
 - Debian or Ubuntu
 - Backup anything you care about first
 
+## Important — repo is private
+
+`raw.githubusercontent.com` returns **404** while the repo is private.
+
+**Fix:** GitHub → `headbrust/resetvps` → **Settings** → **General** → **Danger Zone** → **Change repository visibility** → **Public**.
+
+Or clone with auth:
+```bash
+git clone https://github.com/headbrust/resetvps.git
+cd resetvps && sudo ./resetvps.sh
+```
+
 ## Usage
 
 ```bash
-# download
+# after making the repo public:
 curl -fsSL https://raw.githubusercontent.com/headbrust/resetvps/main/resetvps.sh -o resetvps.sh
 chmod +x resetvps.sh
 
